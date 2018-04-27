@@ -10,6 +10,8 @@ import (
 	_ "net/http/pprof"
 	"sync"
 	"time"
+	"os"
+	"net"
 )
 
 var (
@@ -50,15 +52,21 @@ func NewLogstashCollector(logstashEndpoint string) (*LogstashCollector, error) {
 }
 
 func listen(exporterBindAddress string) {
-	http.Handle("/metrics", prometheus.Handler())
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", prometheus.Handler())
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/metrics", http.StatusMovedPermanently)
 	})
-
-	log.Infoln("Starting server on", exporterBindAddress)
-	if err := http.ListenAndServe(exporterBindAddress, nil); err != nil {
-		log.Fatalf("Cannot start Logstash exporter: %s", err)
+	server := http.Server{
+		Handler: mux, // http.DefaultServeMux,
 	}
+	os.Remove(exporterBindAddress)
+
+	listener, err := net.Listen("unix", exporterBindAddress)
+	if err != nil {
+		panic(err)
+	}
+	server.Serve(listener)
 }
 
 // Describe logstash metrics
@@ -102,8 +110,8 @@ func init() {
 
 func main() {
 	var (
-		logstashEndpoint    = kingpin.Flag("logstash.endpoint", "The protocol, host and port on which logstash metrics API listens").Default("http://localhost:9600").String()
-		exporterBindAddress = kingpin.Flag("web.listen-address", "Address on which to expose metrics and web interface.").Default(":9198").String()
+		logstashEndpoint    = kingpin.Flag("logstash.endpoint", "The protocol, host and port on which logstash metrics API listens").Default("http://localhost:3000").String()
+		exporterBindAddress = kingpin.Flag("unix-sock", "Address on which to expose metrics and unix sock access.").Default("/dev/shm/logstash_exporter.sock").String()
 	)
 
 	log.AddFlags(kingpin.CommandLine)
