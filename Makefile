@@ -1,45 +1,19 @@
-GO              ?= GO15VENDOREXPERIMENT=1 go
-GOPATH          := $(firstword $(subst :, ,$(shell $(GO) env GOPATH)))
-PROMU           ?= $(GOPATH)/bin/promu
-GOLINTER        ?= $(GOPATH)/bin/gometalinter
-pkgs            = $(shell $(GO) list ./... | grep -v /vendor/)
-TARGET          ?= logstash_exporter
+BUILD_VERSION   := v1.0.0
+BUILD_NAME      := logstash_exporter
+TARGET_DIR      := ./release
+COMMIT_SHA1     := $(shell git rev-parse HEAD || echo unsupported)
 
-PREFIX          ?= $(shell pwd)
-BIN_DIR         ?= $(shell pwd)
-
-all: clean format vet gometalinter build test
-
-test:
-	@echo ">> running tests"
-	@$(GO) test -short $(pkgs)
-
-format:
-	@echo ">> formatting code"
-	@$(GO) fmt $(pkgs)
-
-gometalinter: $(GOLINTER)
-	@echo ">> linting code"
-	@$(GOLINTER) --install --update > /dev/null
-	@$(GOLINTER) --config=./.gometalinter.json ./...
-
-build: $(PROMU)
-	@echo ">> building binaries"
-	@$(PROMU) build --prefix $(PREFIX)
+all:
+        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+        go build \
+        -a -ldflags -extldflags=-static \
+        -ldflags  "-X 'main.buildTime=`date "+%Y-%m-%d %H:%M:%S"`' -X 'main.goVersion=`go version`' -X main.buildName=${BUILD_NAME} -X main.commitID=${COMMIT_SHA1}" \
 
 clean:
-	@echo ">> Cleaning up"
-	@find . -type f -name '*~' -exec rm -fv {} \;
-	@rm -fv $(TARGET)
+        rm ${BUILD_NAME} -f
 
-$(GOPATH)/bin/promu promu:
-	@GOOS=$(shell uname -s | tr A-Z a-z) \
-		GOARCH=$(subst x86_64,amd64,$(patsubst i%86,386,$(shell uname -m))) \
-		$(GO) get -u github.com/prometheus/promu
+release:
+        mkdir -p ${TARGET_DIR}
+        cp ${BUILD_NAME} ${TARGET_DIR} -f
 
-$(GOPATH)/bin/gometalinter lint:
-	@GOOS=$(shell uname -s | tr A-Z a-z) \
-		GOARCH=$(subst x86_64,amd64,$(patsubst i%86,386,$(shell uname -m))) \
-		$(GO) get -u github.com/alecthomas/gometalinter
-
-.PHONY: all format vet build test promu clean $(GOPATH)/bin/promu $(GOPATH)/bin/gometalinter lint
+.PHONY : all clean release ${BUILD_NAME}
